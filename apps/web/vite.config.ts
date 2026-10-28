@@ -10,6 +10,7 @@ import { i18nPlugin } from "@toonflow/i18n/vite";
 const serverOrigin = `http://127.0.0.1:${process.env.TOONFLOW_SERVER_PORT || 3000}`;
 
 export default defineConfig({
+  base: process.env.TOONFLOW_BASE || "/",
   css: { postcss: postcssConfig },
   define: {
     "import.meta.env.appVersion": JSON.stringify(desktopConfig.app.version),

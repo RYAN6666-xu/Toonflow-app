@@ -93,6 +93,10 @@ export async function createApp({
     app.use(logger("dev"));
   }
   app.use(cors());
+  // ACT: 所有 DeltaTV 路径需要 DeltaDesigner JWT 登录态。
+  // Next.js 反代会把 auth_token cookie 原样带过来，这里验签。
+  const { requireDeltaAuth } = await import("@/lib/auth");
+  app.use(requireDeltaAuth);
   app.use(languageRequest);
   app.use("/a2a", express.json({ limit: "2mb" }));
   app.use(["/api/workspaces/files/write", "/api/assets/save"], express.raw({ type: "application/octet-stream", limit: "100mb" }));
@@ -119,6 +123,24 @@ export async function createApp({
   const { createA2aRouter } = await import("@/agent/a2a");
   app.use("/a2a", createA2aRouter());
   app.use(express.static(webRoot));
+  // ACT: 为 Vite base=/deltatv/ 生成的绝对路径资源做别名挂载。
+  // Next.js rewrites 会把 /deltatv/assets/* 转发为 :3001/assets/*（strip 前缀），
+  // 但有些浏览器场景（Vue Router 深链接）会请求 /deltatv/assets/*，这里同时支持两种路径。
+  app.use("/deltatv", express.static(webRoot));
+  app.use("/deltatv", (request: Request, _response: Response, next: NextFunction) => {
+    if (request.method !== "GET" && request.method !== "HEAD") return next();
+    // /deltatv/foo/bar → strip 后是 /foo/bar，走 SPA fallback
+    request.url = request.url.replace(/^\/deltatv/, "") || "/";
+    next();
+  });
+  // ACT: SPA fallback — Next.js reverse proxy strips /deltatv before forwarding,
+  // so Toonflow sees plain paths like /workspace/123. Fallback to index.html for any
+  // unknown GET/HEAD so Vue Router can render deep links.
+  app.use((request: Request, response: Response, next: NextFunction) => {
+    if (request.method !== "GET" && request.method !== "HEAD") return next();
+    if (request.path.startsWith("/api") || request.path.startsWith("/a2a") || request.path.startsWith("/mcp")) return next();
+    response.sendFile(resolve(webRoot, "index.html"));
+  });
 
   // 错误处理
   app.use((err: Error & { status?: number }, request: Request, response: Response, next: NextFunction) => {
