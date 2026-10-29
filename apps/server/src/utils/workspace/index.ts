@@ -39,5 +39,8 @@ export async function resolveWorkspace(req: Request, path: string) {
     const offset = relative(root, directory);
     if (offset !== ".." && !offset.startsWith(`..${sep}`) && !isAbsolute(offset)) return directory;
   }
+  // ACT: TOONFLOW_TRUST_PROXY=1 模式下信任反向代理，放行任意目录
+  // 生产：由 Next.js 中间件 auth guard 保证请求合法
+  if (process.env.TOONFLOW_TRUST_PROXY === "1") return directory;
   throw Object.assign(new Error("服务器部署只能使用服务器工作区"), { status: 403 });
 }

@@ -14,6 +14,8 @@ export default defineConfig({
   css: { postcss: postcssConfig },
   define: {
     "import.meta.env.appVersion": JSON.stringify(desktopConfig.app.version),
+    // ACT: 让前端知道自己挂在什么子路径下（反代模式 = /deltatv，独立部署 = ""）
+    "import.meta.env.TOONFLOW_BASE": JSON.stringify(process.env.TOONFLOW_BASE === "/" ? "" : (process.env.TOONFLOW_BASE || "")),
   },
   server: {
     proxy: {

@@ -12,13 +12,70 @@ import router from "@/router";
 import { registerDesktopProtocol } from "@/lib/desktopProtocol";
 import { registerDownloads } from "@/lib/saveFile";
 import { actualPlatform } from "@/lib/platform";
-import "@/lib/mobile";
+// ACT: 故意不 static import @/lib/mobile —— 它会在模块顶层发 fetch("/api/...")。
+// 下方 patch 完 fetch/axios/EventSource 后再动态 import。
 import { getMissingBrowserFeatures } from "@/lib/browserCapabilities";
 import { registerAnonymousData } from "@/lib/anonymousData";
 import { loadSettings, settingsStorage } from "@/stores/settings";
 import { registerDesktopAutoUpdate } from "@/stores/desktopUpdate";
 import { registerLanguage } from "@/lib/i18n";
 import { locale, translate } from "@toonflow/i18n/vue";
+
+// ACT: DeltaDesigner 反代模式下，所有内部 API 需要加 /deltatv 前缀。
+// 这样 Next.js rewrites /deltatv/api/* → :3001/api/* 才能正确转发。
+// 注意：所有 static import 已经被 ES module hoisting 先执行完了。
+// （但我们故意没 static import mobile，所以 mobile 的 fetch 还没发）
+const toonflowBase = (import.meta.env.TOONFLOW_BASE || "") as string;
+if (toonflowBase) {
+  const prefix = toonflowBase.endsWith("/") ? toonflowBase.slice(0, -1) : toonflowBase;
+
+  // Patch global fetch — 覆盖所有 fetch 调用
+  const origFetch = globalThis.fetch.bind(globalThis);
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const path = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+    if (path && path.startsWith("/api")) {
+      const rewritten = prefix + path;
+      return origFetch(rewritten, init);
+    }
+    return origFetch(input as any, init);
+  }) as typeof fetch;
+
+  // Patch EventSource — 浏览器 SSE API 不走 fetch，单独 patch
+  if (typeof EventSource !== "undefined") {
+    const OrigEventSource = EventSource as any;
+    const PatchedEventSource = function (url: string | URL, eventSourceInit?: EventSourceInit) {
+      const urlStr = typeof url === "string" ? url : url.toString();
+      const rewritten = urlStr.startsWith("/api") ? prefix + urlStr : urlStr;
+      return new OrigEventSource(rewritten, eventSourceInit);
+    };
+    PatchedEventSource.prototype = OrigEventSource.prototype;
+    EventSource = PatchedEventSource as any;
+  }
+
+  // Patch axios — 用 request interceptor 覆盖默认实例和所有 create 出来的实例
+  const axiosModule = await import("axios").catch(() => null);
+  if (axiosModule) {
+    const axiosStatic = axiosModule.default ?? axiosModule;
+    const interceptor = (config: any) => {
+      if (config.url && typeof config.url === "string" && config.url.startsWith("/api")) {
+        config.url = prefix + config.url;
+      }
+      return config;
+    };
+    axiosStatic.interceptors.request.use(interceptor);
+    const origCreate = axiosStatic.create.bind(axiosStatic);
+    axiosStatic.create = function patchedCreate(config: any = {}) {
+      const inst = origCreate(config);
+      inst.interceptors.request.use(interceptor);
+      return inst;
+    };
+  }
+
+  // ACT: 现在 patch 已就位，动态 import mobile 让它的顶层 fetch 走 patch
+  await import("@/lib/mobile");
+} else {
+  await import("@/lib/mobile");
+}
 
 const app = createApp(App);
 app.onUnmount(registerLanguage());

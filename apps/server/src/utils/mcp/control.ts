@@ -32,12 +32,22 @@ export function getMcpSettings() {
 }
 
 function allowedHost(req: Request) {
+  // ACT: 反代模式（Next.js rewrites → Toonflow）下，req.host 是 127.0.0.1:3001 但 Origin 是 Next.js 的 host。
+  // 用 TOONFLOW_TRUST_PROXY=1 绕过本地 host 校验，信任反向代理注入的请求。
+  if (process.env.TOONFLOW_TRUST_PROXY === "1") return true;
   return isMobileLinkRequest(req) || !getRuntimePlatform().requiresLocalHost || ["localhost", "127.0.0.1", "[::1]"].includes(req.hostname);
 }
 
 export function getAppOrigin(req: Request) {
   const source = req.get("origin") ?? req.get("referer");
   if (!source || !allowedHost(req)) throw Object.assign(new Error("只允许 Toonflow 页面访问控制连接"), { status: 403 });
+  // ACT: 反代模式下允许任意 Origin host（由 Next.js 中间件鉴权保证安全）
+  if (process.env.TOONFLOW_TRUST_PROXY === "1") {
+    let url: URL;
+    try { url = new URL(source); }
+    catch { throw Object.assign(new Error("页面来源无效"), { status: 403 }); }
+    return url.origin;
+  }
   let url: URL;
   try { url = new URL(source); }
   catch { throw Object.assign(new Error("页面来源无效"), { status: 403 }); }
@@ -58,7 +68,8 @@ export function authorizeMcp(req: Request) {
 
 export function assertAppRequest(req: Request) {
   getAppOrigin(req);
-  if (req.get("x-toonflow-workspace") !== "1") throw Object.assign(new Error("只允许 Toonflow 页面访问控制连接"), { status: 403 });
+  // ACT: TOONFLOW_TRUST_PROXY 模式下跳过 workspace header 检查——由 Next.js 中间件保证请求合法
+  if (process.env.TOONFLOW_TRUST_PROXY !== "1" && req.get("x-toonflow-workspace") !== "1") throw Object.assign(new Error("只允许 Toonflow 页面访问控制连接"), { status: 403 });
 }
 
 export function assertControlRequest(req: Request) {

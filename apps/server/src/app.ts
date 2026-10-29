@@ -12,8 +12,9 @@ import { getRuntimePlatform } from "@/lib/platform";
 import initializePlugins from "@/utils/plugins/initialize";
 import { languageRequest, resolveRequestLocale, runWithLocale, setLocaleFallback, translateError, translateMessage } from "@/lib/i18n";
 import { detectLocale, normalizeLocale } from "@toonflow/i18n";
+import { requestContextStorage } from "@/lib/requestContext";
 
-const autoInstallProviders = ["tfRouter.ts", "apiMart.ts", "metaso.ts", "compshare.ts"];
+const autoInstallProviders = ["tfRouter.ts", "apiMart.ts", "metaso.ts", "compshare.ts", "deltaDesigner.ts"];
 
 export async function createApp({
   webRoot,
@@ -97,6 +98,12 @@ export async function createApp({
   // Next.js 反代会把 auth_token cookie 原样带过来，这里验签。
   const { requireDeltaAuth } = await import("@/lib/auth");
   app.use(requireDeltaAuth);
+  // ACT: 把 auth_token 存入 AsyncLocalStorage，供 provider fetch 转发给 DeltaDesigner
+  app.use((req, _res, next) => {
+    const cookieHeader = req.headers.cookie ?? "";
+    const match = cookieHeader.match(/(?:^|;\s*)auth_token=([^;]+)/);
+    requestContextStorage.run({ authToken: match?.[1] }, next);
+  });
   app.use(languageRequest);
   app.use("/a2a", express.json({ limit: "2mb" }));
   app.use(["/api/workspaces/files/write", "/api/assets/save"], express.raw({ type: "application/octet-stream", limit: "100mb" }));

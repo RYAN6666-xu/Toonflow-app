@@ -45,6 +45,8 @@ export function isMobileLinkRequest(req: Request) {
 }
 
 export function assertMobileLinkControl(req: Request) {
+  // ACT: 反代模式下 bypass 本机/origin 校验（Next.js 已在入口 auth guard 保护）
+  if (process.env.TOONFLOW_TRUST_PROXY === "1") return;
   const origin = `${req.protocol}://${req.get("host")}`;
   const sameOrigin = req.get("origin") === undefined ? req.get("referer")?.startsWith(`${origin}/`) : req.get("origin") === origin;
   const localSocket = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress ?? "");

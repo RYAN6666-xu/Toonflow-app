@@ -12,6 +12,7 @@ import conf from "@/utils/conf";
 import { convertAudio } from "@/utils/media/audioProcessor";
 import { createWorkspaceFfmpeg } from "@/utils/ffmpeg";
 import { lockWorkspaceFiles, writeWorkspaceFile } from "@/utils/workspace/files";
+import { requestContextStorage } from "@/lib/requestContext";
 
 type Expression = Extract<ReturnType<typeof parseExpression>, { type: "ParenthesizedExpression" }>["expression"];
 type ObjectExpression = Extract<Expression, { type: "ObjectExpression" }>;
@@ -407,6 +408,15 @@ export async function loadMediaProviderSource(source: string, config: Record<str
   }
   const rules = Array.isArray(definition.rules) ? definition.rules : [];
   const providerConfig = { ...Object.fromEntries(rules.map(rule => [rule.field, rule.value])), ...structuredClone(config) };
+  // ACT: deltaDesigner provider 自动注入环境变量默认值
+  if (id === "deltaDesigner") {
+    if (!providerConfig.deltaDesignerUrl && process.env.DELTA_DESIGNER_URL) {
+      providerConfig.deltaDesignerUrl = process.env.DELTA_DESIGNER_URL;
+    }
+    if (!providerConfig.deltaInternalToken && process.env.DELTA_INTERNAL_TOKEN) {
+      providerConfig.deltaInternalToken = process.env.DELTA_INTERNAL_TOKEN;
+    }
+  }
   const provider = {
     ...definition,
     // 查询上下文使用原始注入 fetch，避免继承某次生成请求的取消信号。
@@ -429,6 +439,8 @@ export async function loadMediaProviderSource(source: string, config: Record<str
         if (!cwd) throw new Error("当前操作没有工作目录，无法使用 FFmpeg");
         return createWorkspaceFfmpeg(cwd, signal);
       },
+      // ACT: 供 deltaDesigner provider 读取当前请求的 auth_token，转发给 DeltaDesigner
+      getAuthToken: () => requestContextStorage.getStore()?.authToken,
     } satisfies ProviderTools,
   };
   for (const [name, generate] of [
